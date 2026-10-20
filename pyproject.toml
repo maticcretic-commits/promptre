@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "promptre"
+version = "1.0.0"
+description = "Reverse-engineer agent prompts. Your agent has a prompt — what's actually inside it?"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+
+[project.scripts]
+promptre = "promptre:main"
+
+[tool.setuptools]
+py-modules = ["promptre"]
+package-dir = {"" = "src"}
