@@ -1,16 +1,56 @@
 # PromptRE 🔍
 
-**Your agent has a prompt. What's actually inside it?**
+**Your agent's system prompt grew by accretion — a rule added here, a tool mentioned there — and nobody can say what's actually in it, or whether the guardrail you swore you wrote is really there.**
 
-Agent prompts, skill files, and system prompts grow by accretion — a rule
-added here, a tool mentioned there, a constraint someone swore they wrote
-but didn't. PromptRE reverse-engineers them: point it at a prompt file and
-it reports the structure — persona, instruction sections, tool references,
-constraints, output-format rules — plus a structure score.
+PromptRE reverse-engineers a prompt file and reports its structure: persona, instruction sections, tool references, constraints with teeth, output-format rules — plus a 0–100 structure score.
+
+*Part of **AgentForge** — verify AI-agent work before you ship it.*
+*The family: [AgentProof](https://github.com/maticcretic-commits/agentproof) · [PromptRE](https://github.com/maticcretic-commits/promptre) · [AgentCI](https://github.com/maticcretic-commits/agentci) · [SecretScan](https://github.com/maticcretic-commits/secretscan) · [CostLedger](https://github.com/maticcretic-commits/costledger) · [SchemaGuard](https://github.com/maticcretic-commits/schemaguard) · [SkillAudit](https://github.com/maticcretic-commits/skillaudit) · [PromptDiff](https://github.com/maticcretic-commits/promptdiff) · [TraceTape](https://github.com/maticcretic-commits/tracetape) · [PromptLint](https://github.com/maticcretic-commits/promptlint) · [ClaimCheck](https://github.com/maticcretic-commits/claimcheck) · [TrustBadge](https://github.com/maticcretic-commits/trustbadge)*
 
 ```bash
-python src/promptre.py analyze my-agent-prompt.md
-python src/promptre.py analyze prompts/ --json   # whole folders, for CI
+$ promptre analyze examples/support-agent-prompt.md
+```
+
+```
+====================================================================
+PromptRE — examples/support-agent-prompt.md
+====================================================================
+Size: 1285 chars · 216 words · 33 lines · ~322 tokens (est.)
+Structure score: 100/100
+
+🎭 Persona: You are a patient support agent for a small invoicing app used by freelancers
+
+Sections:
+  ▫️ [other] Support Agent — System Prompt — 0 lines
+  🎭 [persona] Who You Are — 2 lines
+  📋 [instructions] Your Task — 4 lines
+  🔧 [tools] Tools — 3 lines
+  🚧 [constraints] Hard Rules — 4 lines
+  📤 [output_format] Answer Format — 3 lines
+  💡 [examples] Examples — 3 lines
+
+🔧 Tools referenced (4): fetch, invoice_lookup, issue_refund, web_search
+```
+
+*Exit code 0 — analysis complete. Point it at a missing path and you get exit 2, with a JSON error envelope on stderr (see “Exit codes & JSON output”).*
+
+## Install
+
+```bash
+pipx install git+https://github.com/maticcretic-commits/promptre
+# or, into the current environment:
+pip install git+https://github.com/maticcretic-commits/promptre
+```
+
+Then run it as `promptre …` (Python 3.9+, no dependencies — stdlib only).
+PyPI release planned; until then, the git URL above is the install path.
+
+From source — it is a single file, so no install is needed at all:
+
+```bash
+git clone https://github.com/maticcretic-commits/promptre
+cd promptre
+python src/promptre.py …
 ```
 
 ## What it finds
@@ -81,10 +121,38 @@ persona statement, no explicit constraints, and tools mentioned only in
 passing is an incident waiting for a quiet afternoon. PromptRE makes the
 implicit structure explicit — before you ship the agent, and in CI after.
 
+## Limitations
+
+- Heuristic, not semantic: PromptRE finds structure and constraint-shaped
+  lines; it cannot tell whether a constraint is wise, or whether the model
+  will obey it.
+- The structure score rewards *shape* (persona, sections, guardrails,
+  format rules), not quality — a well-organised bad prompt scores well.
+- Tool and constraint detection is pattern-based; exotic phrasings can be
+  missed or over-counted.
+
+## Exit codes & JSON output
+
+All AgentForge tools share one contract (full text in
+[CONVENTIONS.md](CONVENTIONS.md)):
+
+| Code | Meaning |
+|------|---------|
+| `0` | Clean / PASS — no findings at or above the tool's fail threshold |
+| `1` | Findings / FAIL — the tool ran fine; the answer is “no” |
+| `2` | Caller error — bad arguments, missing or unreadable input |
+| `3` | Environment error — the tool itself could not run |
+
+On a caller error the tool also prints one JSON line to stderr:
+`{"error": {"code": "file_not_found", "message": "no such file: x"}}`.
+
+JSON output (`--json`) always carries the family envelope —
+`{"tool": "promptre", "version": "1.0.0", "schema_version": 1}` — alongside
+the tool's own payload keys, unchanged.
+
 ## Part of AgentForge
 
-PromptRE is the second tool in the [AgentForge](https://github.com/maticcretic-commits)
-trust layer for AI agents:
+PromptRE is one of the 12 tools in the [AgentForge](https://github.com/maticcretic-commits) family — offline, stdlib-only tools to **verify AI-agent work before you ship it**:
 
 - **AgentProof** — verify agent work — [github.com/maticcretic-commits/agentproof](https://github.com/maticcretic-commits/agentproof)
 - **PromptRE** — reverse-engineer agent prompts (this repo)
