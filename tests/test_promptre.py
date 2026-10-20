@@ -270,3 +270,21 @@ def test_cli_json_schema_version_is_int_1():
         data = json.loads(r.stdout)
         assert data["schema_version"] == 1
         assert type(data["schema_version"]) is int
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: stdin analysis (pipe composability)
+# ---------------------------------------------------------------------------
+
+def test_analyze_stdin():
+    cli = Path(__file__).parent.parent / "src" / "promptre.py"
+    text = (Path(__file__).parent.parent / "examples"
+            / "support-agent-prompt.md").read_text()
+    proc = subprocess.run(
+        [sys.executable, str(cli), "analyze", "-", "--json"],
+        input=text, capture_output=True, text=True)
+    assert proc.returncode == 0
+    data = json.loads(proc.stdout)  # stdout is pure JSON
+    assert data["tool"] == "promptre"
+    assert data["results"][0]["file"] == "<stdin>"
+    assert data["results"][0]["structure_score"] > 0
