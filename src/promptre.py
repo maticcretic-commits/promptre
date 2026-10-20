@@ -20,6 +20,8 @@ import sys
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
+VERSION = "1.0.0"
+
 # ---------------------------------------------------------------------------
 # Section classification
 #
@@ -355,17 +357,27 @@ def print_text_report(analyses):
                   f"avg structure score {avg:.0f}/100")
 
 
+def _fail(code, message):
+    print(f"error: {message}", file=sys.stderr)
+    print(json.dumps({"error": {"code": code, "message": message}}),
+          file=sys.stderr)
+    sys.exit(2)
+
+
 def cmd_analyze(args):
     path = Path(args.target)
     if not path.exists():
-        print(f"error: no such file or directory: {path}", file=sys.stderr)
-        sys.exit(2)
+        _fail("file_not_found", f"no such file or directory: {path}")
     analyses = analyze_path(path)
     if not analyses:
-        print(f"no .md or .txt files found under {path}")
-        sys.exit(2)
+        _fail("no_prompt_files", f"no .md or .txt files found under {path}")
     if args.json:
-        print(json.dumps([asdict(a) for a in analyses], indent=2))
+        print(json.dumps({
+            "tool": "promptre",
+            "version": VERSION,
+            "schema_version": 1,
+            "results": [asdict(a) for a in analyses],
+        }, indent=2))
     else:
         print_text_report(analyses)
 
@@ -420,6 +432,11 @@ def main():
         prog="promptre",
         description="Reverse-engineer agent prompts. "
                     "Your agent has a prompt — what's actually inside it?")
+    ap.add_argument("--version", action="version",
+                    version=f"promptre {VERSION}")
+    ap.add_argument("--no-color", action="store_true",
+                    help="disable ANSI color output (accepted harmlessly; "
+                         "NO_COLOR env var is also honored)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     an = sub.add_parser("analyze", help="analyze a prompt file or directory")
