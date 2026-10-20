@@ -88,9 +88,10 @@ trust layer for AI agents:
 
 - **AgentProof** — verify agent work — [github.com/maticcretic-commits/agentproof](https://github.com/maticcretic-commits/agentproof)
 - **PromptRE** — reverse-engineer agent prompts (this repo)
-- **Agent CI** — regression harness for agents (coming soon)
+- **AgentCI** — regression harness for agents — [github.com/maticcretic-commits/agentci](https://github.com/maticcretic-commits/agentci)
+- **SecretScan** — scan agent outputs for leaked secrets — [github.com/maticcretic-commits/secretscan](https://github.com/maticcretic-commits/secretscan)
 
-AgentProof checks what an agent *did*; PromptRE checks what it was *told*.
+AgentProof checks what an agent *did*; PromptRE checks what it was *told*; AgentCI checks it still *works* after you change it; SecretScan checks that nothing *leaked*.
 
 ## License
 
