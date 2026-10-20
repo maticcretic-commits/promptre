@@ -184,8 +184,9 @@ def test_cli_json_output_valid():
         r = run_cli("analyze", str(p), "--json")
         assert r.returncode == 0, r.stderr
         data = json.loads(r.stdout)  # must be valid JSON
-        assert isinstance(data, list) and len(data) == 1
-        item = data[0]
+        assert isinstance(data, dict)
+        assert isinstance(data["results"], list) and len(data["results"]) == 1
+        item = data["results"][0]
         assert item["persona"]
         assert item["est_tokens"] > 0
         assert "web_search" in item["tools"]
@@ -216,4 +217,56 @@ def test_cli_init_scaffolds_analyzable_sample():
         assert sample.exists()
         r2 = run_cli("analyze", str(sample), "--json")
         data = json.loads(r2.stdout)
-        assert data[0]["structure_score"] >= 80
+        assert data["results"][0]["structure_score"] >= 80
+
+
+# --- envelope / version / error envelope -------------------------------------
+
+def test_cli_json_envelope_keys():
+    with tempfile.TemporaryDirectory() as d:
+        p = _write(d, "agent.md", SAMPLE)
+        r = run_cli("analyze", str(p), "--json")
+        assert r.returncode == 0, r.stderr
+        data = json.loads(r.stdout)
+        assert isinstance(data, dict)
+        assert data["tool"] == "promptre"
+        assert data["version"] == "1.0.0"
+        assert "schema_version" in data
+        assert "results" in data
+        assert isinstance(data["results"], list)
+
+
+def test_cli_version():
+    r = run_cli("--version")
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == "promptre 1.0.0"
+
+
+def test_cli_missing_path_error_envelope():
+    r = run_cli("analyze", "/nonexistent/nope.md")
+    assert r.returncode == 2
+    # stderr must contain a JSON error envelope line with code file_not_found
+    found = None
+    for line in r.stderr.splitlines():
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if "error" in obj:
+                found = obj
+                break
+    assert found is not None, r.stderr
+    assert found["error"]["code"] == "file_not_found"
+    assert "no such file or directory" in found["error"]["message"]
+
+
+def test_cli_json_schema_version_is_int_1():
+    with tempfile.TemporaryDirectory() as d:
+        p = _write(d, "agent.md", SAMPLE)
+        r = run_cli("analyze", str(p), "--json")
+        assert r.returncode == 0, r.stderr
+        data = json.loads(r.stdout)
+        assert data["schema_version"] == 1
+        assert type(data["schema_version"]) is int
