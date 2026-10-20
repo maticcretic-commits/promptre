@@ -365,6 +365,20 @@ def _fail(code, message):
 
 
 def cmd_analyze(args):
+    if args.target == "-":
+        # Pipe composability (CONVENTIONS.md): analyze prompt text
+        # read from stdin.
+        analyses = [analyze_text(sys.stdin.read(), name="<stdin>")]
+        if args.json:
+            print(json.dumps({
+                "tool": "promptre",
+                "version": VERSION,
+                "schema_version": 1,
+                "results": [asdict(a) for a in analyses],
+            }, indent=2))
+        else:
+            print_text_report(analyses)
+        return
     path = Path(args.target)
     if not path.exists():
         _fail("file_not_found", f"no such file or directory: {path}")
@@ -440,7 +454,8 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     an = sub.add_parser("analyze", help="analyze a prompt file or directory")
-    an.add_argument("target", help="path to a .md/.txt file or a directory")
+    an.add_argument("target", help="path to a .md/.txt file or a directory "
+                                  "('-' reads one prompt from stdin)")
     an.add_argument("--json", action="store_true",
                     help="machine-readable JSON output")
     an.set_defaults(fn=cmd_analyze)
