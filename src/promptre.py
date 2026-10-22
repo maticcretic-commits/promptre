@@ -20,7 +20,7 @@ import sys
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 # ---------------------------------------------------------------------------
 # Section classification
@@ -116,6 +116,135 @@ class PromptAnalysis:
     code_blocks: int = 0
     structure_score: int = 0  # 0-100
     score_notes: list = field(default_factory=list)
+    risks: list = field(default_factory=list)  # adversarial scan
+
+
+# ---------------------------------------------------------------------------
+# Adversarial scan
+#
+# Reverse-engineering a prompt includes asking whether the prompt
+# itself is an attack: text written to override the agent's real
+# instructions, to conceal itself, or to smuggle content past a
+# human reviewer. All checks are deterministic heuristics over the
+# raw text — no model call, no network. Findings are ADVISORY:
+# `analyze` keeps its exit-0 contract (a prompt full of red flags is
+# still a successfully analyzed prompt); callers gate on the
+# `risks` array.
+# ---------------------------------------------------------------------------
+
+def _crx(p):
+    return re.compile(p, re.IGNORECASE)
+
+
+_RISK_OVERRIDE = [
+    _crx(r"\bignore\s+(all\s+|any\s+)?(previous|prior|earlier|above)\s+"
+         r"(instructions?|prompts?|rules?|directions?)\b"),
+    _crx(r"\bdisregard\s+(your\s+|the\s+|all\s+)?"
+         r"(instructions?|rules?|system\s+prompt|guidelines?)\b"),
+    _crx(r"\bforget\s+(your|all|the)\s+(previous\s+)?"
+         r"(instructions?|rules?|training)\b"),
+    _crx(r"\bdo\s+not\s+follow\s+(your|the)\s+(original\s+)?"
+         r"instructions?\b"),
+    _crx(r"\byou\s+are\s+now\s+(in\s+)?"
+         r"(developer\s+mode|dan|unrestricted|jailbroken)\b"),
+]
+_RISK_CONCEAL = [
+    _crx(r"\b(do\s+not|don'?t|never)\s+(tell|inform)\s+the\s+user\b"),
+    _crx(r"\bnever\s+mention\s+this\b"),
+    _crx(r"\bdo\s+not\s+(mention|reveal|disclose)\b"),
+    _crx(r"\bwithout\s+(telling|informing|notifying)\s+the\s+user\b"),
+    _crx(r"\bkeep\s+this\s+(hidden|secret)\s+from\s+the\s+user\b"),
+]
+_RISK_EXTRACT = [
+    _crx(r"\b(reveal|print|repeat|output|show|leak|extract|dump)\b"
+         r"[^.\n]{0,40}\bsystem\s+prompt\b"),
+    _crx(r"\bsystem\s+prompt\b[^.\n]{0,40}\b"
+         r"(reveal|print|repeat|verbatim|word\s+for\s+word)\b"),
+]
+_RISK_UNTRUSTED = [
+    _crx(r"\bfollow\s+(the\s+)?instructions?\s+(in|on|from)\b"
+         r"[^.\n]{0,40}\b(web\s?page|page|document|file|tool\s+output|"
+         r"website|link|url|email|message)\b"),
+    _crx(r"\bdo\s+whatever\s+(it|the\s+\w+)\s+says\b"),
+    _crx(r"\bobey\s+(the\s+)?(web\s?page|document|tool\s+output|"
+         r"instructions?\s+in)\b"),
+]
+_RISK_B64 = re.compile(r"(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{40,}={0,2}"
+                       r"(?![A-Za-z0-9+/=])")
+_RISK_ZERO_WIDTH = "\u200b\u200c\u200d\u2060\ufeff\u00ad\u180e"
+_RISK_BIDI = ("\u202a\u202b\u202c\u202d\u202e"
+              "\u2066\u2067\u2068\u2069")
+
+
+def _decoded_payload(text):
+    rules = _RISK_OVERRIDE + _RISK_CONCEAL + _RISK_EXTRACT + [
+        _crx(r"\b(password|api[\s_-]?key|secret|access\s+token|"
+             r"credentials?)\b")]
+    return any(rx.search(text) for rx in rules)
+
+
+def scan_risks(text: str) -> list:
+    """Adversarial findings for one prompt text:
+    [{check, severity, line, message}] sorted by line."""
+    import base64
+    import binascii
+    risks = []
+
+    def add(check, severity, line, message):
+        risks.append({"check": check, "severity": severity,
+                      "line": line, "message": message})
+
+    for i, line in enumerate(text.splitlines(), start=1):
+        if any(rx.search(line) for rx in _RISK_OVERRIDE):
+            add("override-phrasing", "high", i,
+                "Tells the agent to ignore or disregard its real "
+                "instructions")
+        if any(rx.search(line) for rx in _RISK_CONCEAL):
+            add("concealment-phrasing", "high", i,
+                "Tells the agent to hide behaviour from the user")
+        if any(rx.search(line) for rx in _RISK_EXTRACT):
+            add("system-prompt-extraction", "medium", i,
+                "Asks for the system prompt to be revealed or "
+                "repeated")
+        if any(rx.search(line) for rx in _RISK_UNTRUSTED):
+            add("untrusted-instruction-source", "medium", i,
+                "Directs the agent to follow instructions arriving "
+                "from an untrusted source (page, document, tool "
+                "output)")
+        tags = sum(1 for c in line if 0xE0000 <= ord(c) <= 0xE007F)
+        zw = sum(1 for c in line if c in _RISK_ZERO_WIDTH)
+        bidi = sum(1 for c in line if c in _RISK_BIDI)
+        if tags or zw or bidi:
+            kinds = []
+            if tags:
+                kinds.append(f"{tags} Unicode tag character(s)")
+            if zw:
+                kinds.append(f"{zw} zero-width character(s)")
+            if bidi:
+                kinds.append(f"{bidi} bidi control(s)")
+            add("invisible-content", "high", i,
+                "Invisible content a human reviewer cannot see: "
+                + ", ".join(kinds))
+        for m in _RISK_B64.finditer(line):
+            blob = m.group(0)
+            try:
+                decoded = base64.b64decode(
+                    blob + "=" * (-len(blob) % 4),
+                    validate=True).decode("utf-8", errors="ignore")
+            except (binascii.Error, ValueError):
+                decoded = ""
+            if decoded and _decoded_payload(decoded):
+                add("encoded-instruction", "high", i,
+                    "Base64 blob decodes to override / concealment "
+                    "phrasing — an encoded payload")
+                break
+            if len(blob) >= 120:
+                add("encoded-blob", "medium", i,
+                    f"Long base64-like blob ({len(blob)} chars) — "
+                    "content a reviewer cannot read in place")
+                break
+    risks.sort(key=lambda r: r["line"])
+    return risks
 
 
 def estimate_tokens(text: str) -> int:
@@ -284,6 +413,7 @@ def analyze_text(text: str, name: str = "<text>") -> PromptAnalysis:
     a.constraints = extract_constraints(text)
     a.output_formats = extract_output_formats(text)
     a.structure_score, a.score_notes = score_structure(a)
+    a.risks = scan_risks(text)
     return a
 
 
@@ -348,6 +478,13 @@ def print_text_report(analyses):
         print(f"📤 Output formats: "
               f"{', '.join(a.output_formats) if a.output_formats else '(none specified)'}")
         print(f"🧱 Code blocks: {a.code_blocks} · Headers: {a.headers}")
+        print()
+        print(f"🕵️ Adversarial risks ({len(a.risks)}):")
+        for r in a.risks:
+            print(f"  - [line {r['line']}] {r['severity'].upper()} "
+                  f"{r['check']}: {r['message']}")
+        if not a.risks:
+            print("  (none detected)")
         print()
     if multi:
         ok = [a for a in analyses if not a.empty]
