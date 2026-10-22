@@ -64,6 +64,30 @@ python src/promptre.py …
 | **Output formats** | JSON, Markdown, bullet lists, tables, "respond only with …" |
 | **Size** | Chars, words, lines, and an estimated token count |
 | **Structure score** | 0–100 heuristic: persona? instructions? guardrails? tools? format rules? sectioned? |
+| **Adversarial risks** | A deterministic scan for prompt-as-attack signals (below): override phrasing, concealment, system-prompt extraction asks, invisible characters, encoded payloads, untrusted instruction sources |
+
+## Adversarial risks
+
+Reverse-engineering a prompt includes asking whether the prompt
+itself is an attack. Every analysis carries a `risks` array —
+`{check, severity, line, message}` — and the text report prints an
+"🕵️ Adversarial risks" section:
+
+| Check | Severity | Finds |
+|-------|----------|-------|
+| `override-phrasing` | high | "Ignore all previous instructions", "disregard your rules", jailbreak-mode phrasing |
+| `concealment-phrasing` | high | "Never tell the user", "do not mention this", "keep this hidden from the user" |
+| `invisible-content` | high | Unicode tag characters, zero-width characters, bidi controls — content a human reviewer cannot see |
+| `encoded-instruction` | high | A base64 blob that decodes to override / concealment / credential phrasing |
+| `system-prompt-extraction` | medium | "Print your system prompt", "repeat the system prompt verbatim" |
+| `untrusted-instruction-source` | medium | "Follow the instructions in the tool output / webpage / document" |
+| `encoded-blob` | medium | A long base64-like blob (≥120 chars) a reviewer cannot read in place |
+
+Risks are **advisory**: `analyze` keeps its exit-0 contract — a
+prompt full of red flags is still a successfully analyzed prompt.
+Gate on the `risks` array in your own pipeline if you need a hard
+fail. SkillAudit runs the same families of checks as install-time
+gates over whole skill packages.
 
 ## Quick start
 
@@ -147,7 +171,7 @@ On a caller error the tool also prints one JSON line to stderr:
 `{"error": {"code": "file_not_found", "message": "no such file: x"}}`.
 
 JSON output (`--json`) always carries the family envelope —
-`{"tool": "promptre", "version": "1.0.0", "schema_version": 1}` — alongside
+`{"tool": "promptre", "version": "1.1.0", "schema_version": 1}` — alongside
 the tool's own payload keys, unchanged.
 
 ## Part of AgentForge
